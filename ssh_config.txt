@@ -1,0 +1,3 @@
+host *
+    Ciphers aes256-ctr
+    MACs hmac-sha2-512
