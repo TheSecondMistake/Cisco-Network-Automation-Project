@@ -16,7 +16,7 @@ class CiscoSSH:
     """
     instances = []
 
-    def __init__(self, ip, username: str, password: str, end_with_write:bool = False):
+    def __init__(self, ip, username: str, password: str, end_with_write:bool = False) -> None:
         base_dir = os.path.dirname(os.path.abspath(__file__))
         ssh_config_file = os.path.join(base_dir, "ssh_config.txt")
         self.device_params = {
@@ -32,7 +32,7 @@ class CiscoSSH:
         self.end_with_write = end_with_write
         CiscoSSH.instances.append(self)
 
-    def __enter__(self):
+    def __enter__(self) -> "CiscoSSH":
         """
         Runs automatically when you open a 'with' block.
         
@@ -41,7 +41,7 @@ class CiscoSSH:
         self._ensure_connection()
         return self
 
-    def __exit__(self, exc_type, exc_val, exc_tb):
+    def __exit__(self, exc_type, exc_val, exc_tb) -> None:
         """Runs automatically when the 'with' block ends (even on errors).
         
         Closes SSH session
@@ -56,7 +56,7 @@ class CiscoSSH:
             except Exception: # pylint: disable=broad-exception-caught
                 pass
 
-    def _ensure_connection(self):
+    def _ensure_connection(self) -> None:
         """Internal helper to check for an active SSH session."""
         if not self.ssh or not self.ssh.is_alive():
             try:
@@ -117,8 +117,11 @@ class CiscoSSH:
             # Handle cases where TextFSM/parsing doesn't return the expected keys
             return f"Data parsing error on {self.hostname}: Missing field {e}"
 
-    def manual_disconnect(self):
-        """Disconnects from SSH session, if it exists"""
+    def manual_disconnect(self) -> None:
+        """
+        This class should acutomatiically close ssh sessions but this 
+        function to allow a more granular disconnect option if needed.
+        """
         if self.ssh:
             try:
                 self.ssh.disconnect()
@@ -127,7 +130,7 @@ class CiscoSSH:
                 pass
 
     @classmethod
-    def close_all_sessions(cls):
+    def close_all_sessions(cls) -> None:
         """
         Loops through the registry and closes all connections.
         Can be run at the end of a script to make sure all SSH sessions are closed

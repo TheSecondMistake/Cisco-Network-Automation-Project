@@ -50,7 +50,7 @@ class CatalystCenterClient:
         - Authenticated API requests
     """
 
-    def __init__(self, username: str, password: str):
+    def __init__(self, username: str, password: str) -> None:
         self.env_base_url = os.getenv("base_dnac_url")
         self.username = username
         self.password = password
@@ -63,7 +63,7 @@ class CatalystCenterClient:
             "Accept": "application/json"
         })
 
-    def __enter__(self):
+    def __enter__(self) -> "CatalystCenterClient":
         """Establishes an authenticated Catalyst Center session."""
         try:
             self._validate_config()
@@ -77,17 +77,18 @@ class CatalystCenterClient:
             raise
         return self
 
-    def __exit__(self, exc_type, exc_val, exc_tb):
+    def __exit__(self, exc_type, exc_val, exc_tb) -> None:
         """Closes the HTTP session."""
         self.session.close()
 
-    def _validate_config(self):
+    def _validate_config(self) -> None:
         """Validate required Catalyst Center configuration."""
         required = {
             "base_dnac_url": self.env_base_url,
             "dnac_host": os.getenv("dnac_host"),
             "dnac_cert_name": os.getenv("dnac_cert_name"),
             "dnac_cert_sha512_hash": os.getenv("dnac_cert_sha512_hash"),
+            "dnac_cert_path": os.getenv("dnac_cert_path")
         }
 
         missing = [name for name, value in required.items() if not value]
@@ -97,10 +98,10 @@ class CatalystCenterClient:
                 f"Missing required Catalyst Center configuration: {', '.join(missing)}"
             )
 
-    def _check_dnac_cert(self):
+    def _check_dnac_cert(self) -> str:
         """Validate the local DNAC certificate or retrieve it if missing."""
 
-        cert_path = fr"C:/Users/{os.getlogin()}/Documents/PythonRequirements"
+        cert_path = os.getenv("dnac_cert_path")
         dnac_cert = os.getenv("dnac_cert_name")
         expected_hash = os.getenv("dnac_cert_sha512_hash")
 
@@ -141,7 +142,7 @@ Creating directory in {cert_path}
 
         return self._get_server_certificate(full_cert_path)
 
-    def _get_server_certificate(self, full_cert_path):
+    def _get_server_certificate(self, full_cert_path) -> str:
         """Retrieves, verfies, and stores DNAC public cert on local machine.
         This module uses certificate pinning because there is no easy CA to reference.
         Ensures the script only communicates with the verified DNAC hardware.
@@ -197,7 +198,7 @@ Received: {cert_hash}
                 f"SSL ERROR: {e}. The server may have a misconfigured certificate."
                 ) from e
 
-    def _get_dnactoken(self):
+    def _get_dnactoken(self) -> None:
         """Authenticates to Catalyst Center and stores the API token."""
 
         login_counter = 0
@@ -253,7 +254,7 @@ Received: {cert_hash}
 
         raise RuntimeError("Catalyst Center authentication failed unexpectedly.")
 
-    def _refresh_token(self):
+    def _refresh_token(self) -> None:
         """Refreshes the Catalyst Center authentication token."""
         if not self.username or not self.password:
             print("Username and password were cleared from memory. "
@@ -321,15 +322,29 @@ Received: {cert_hash}
 
         return response
 
-    def request_json(self, method: str, endpoint: str, **kwargs):
-        """Make an authenticated request and return the JSON response."""
+    def request_json(self, method: str, endpoint: str, **kwargs) -> dict:
+        """Make an authenticated request and return the JSON response.
+        
+        Args:
+            method: HTTP method (GET, POST, PUT, PATCH, DELETE)
+            endpoint: API endpoint path
+            **kwargs: Additional arguments passed to requests.request()
+            
+        Returns:
+            dict: Parsed JSON response
+            
+        Raises:
+            RuntimeError: If request fails or response cannot be parsed as JSON
+            ValueError: If response contains malformed or invalid JSON
+        """
         response = self.request(method, endpoint, **kwargs)
 
         try:
             return response.json()
         except ValueError as exc:
-            raise RuntimeError(
-                "Catalyst Center returned malformed JSON."
+            raise ValueError(
+                f"Catalyst Center returned malformed JSON for {endpoint}. "
+                f"Status: {response.status_code}, Content preview: {response.text[:200]}"
             ) from exc
 
 
@@ -343,7 +358,7 @@ class CatalystCenterGetAPIs:
     that no state changes or configurations are applied to the controller or network.
     """
 
-    def __init__(self, client: CatalystCenterClient):
+    def __init__(self, client: CatalystCenterClient) -> None:
         self.client = client
 
 
@@ -420,7 +435,7 @@ Type here: """)
                 "Catalyst Center returned malformed JSON "
             ) from exc
 
-    def get_client_detail(self, mac):
+    def get_client_detail(self, mac) -> dict:
         """Gets client detail from Catalyst Center based on MAC Address"""
 
         try:
@@ -436,9 +451,15 @@ Type here: """)
                 "Catalyst Center returned malformed JSON "
             ) from exc
 
-    def get_task_status(self, task_id: str):
-        """Get the task status and returns the id, progres, and if there is an error
-        If there is an error, returns the error
+    def get_task_status(self, task_id: str) -> tuple[str, str | None]:
+        """Get the task status and returns the id, progress, and if there is an error.
+        If there is an error, also returns the error reason.
+
+        Args:
+            task_id: The Catalyst Center task identifier
+
+        Returns:
+            tuple: (formatted_status_string, failure_reason_or_None)
         """
 
         task_data = self.client.request_json(
@@ -471,7 +492,7 @@ class CatalystCenterPostAPIs:
     It expects to be initialized with active authentication headers and a valid 
     certificate path provided by the ConnectionHandler.
     """
-    def __init__(self, client: CatalystCenterClient):
+    def __init__(self, client: CatalystCenterClient) -> None:
         self.client = client
 
     def update_telemetry_settings(self, uuids: list, force_push: bool = False) -> dict:

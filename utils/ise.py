@@ -14,7 +14,7 @@ load_dotenv()
 
 class ISE:
     """Provides a secure interface for interacting with ISE ERS APIs."""
-    def __init__(self, username: str, password: str): #pylint: disable=redefined-outer-name
+    def __init__(self, username: str, password: str) -> None: #pylint: disable=redefined-outer-name
         self.username = username
         self.password = password
         self.session = None  # Placeholder for the session object
@@ -22,7 +22,7 @@ class ISE:
         self.full_cert_path = self._validate_or_get_certificate()
 
 
-    def __enter__(self):
+    def __enter__(self) -> "ISE":
         """Opens the session and validates connectivity/cert trust before returning."""
         self.session = requests.Session()
         self.session.verify = self.full_cert_path
@@ -56,7 +56,7 @@ class ISE:
                 f"Unable to connect to ISE: {e}"
             ) from e
 
-    def __exit__(self, exc_type, exc_val, exc_tb):
+    def __exit__(self, exc_type, exc_val, exc_tb) -> None:
         """Ensures the session is closed when exiting the context."""
         if self.session:
             try:
@@ -66,20 +66,20 @@ class ISE:
                 # We catch all exceptions here to ensure the cleanup phase
                 print("An error occurred while closing the ISE session: " + str(e))
 
-    def _validate_or_get_certificate(self):
+    def _validate_or_get_certificate(self) -> str:
         """Makes sure the ISE public cert is valid and on the local machine."""
-        cert_path = fr"C:/Users/{os.getlogin()}/Documents/PythonRequirements"
-        ise1_cert = os.getenv("ise1_cert_name")
-        env_expected_ise1p_cert_hash = os.getenv("ise1_cert_sha512_hash")
+        ers_primary_cert_path = os.getenv("ers_primary_cert_path")
+        ers_primary_cert_name = os.getenv("ers_primary_cert_name")
+        env_expected_ers_primary_cert_hash = os.getenv("ers_primary_sha512_hash")
 
         #Checks if the file exists
-        if not os.path.exists(cert_path):
+        if not os.path.exists(ers_primary_cert_path):
             print(f"""
 Standard ISE requirements path does not exist.
-Creating directory in {cert_path}
+Creating directory in {ers_primary_cert_path}
 """)
-            os.makedirs(cert_path)
-        self.full_cert_path = os.path.join(cert_path, ise1_cert)
+            os.makedirs(ers_primary_cert_path)
+        self.full_cert_path = os.path.join(ers_primary_cert_path, ers_primary_cert_name)
 
         #If file exists, convert to pem, hash, and compare to hash stored in .env
         if os.path.isfile(self.full_cert_path):
@@ -89,7 +89,7 @@ Creating directory in {cert_path}
                 der_data = ssl.PEM_cert_to_DER_cert(pem_data)
                 final_hash = hashlib.sha512(der_data).hexdigest()
 
-                if final_hash != env_expected_ise1p_cert_hash:
+                if final_hash != env_expected_ers_primary_cert_hash:
                     raise RuntimeError("ISE cert hash is invalid.")
                 return self.full_cert_path
 
@@ -102,23 +102,23 @@ Creating directory in {cert_path}
         else:
             print(f"""
 Missing ISE 1 certificate
-Placing ISE 1 certificate in following directory: {cert_path}\n\n
+Placing ISE 1 certificate in following directory: {ers_primary_cert_path}\n\n
 """)
             self._get_server_certificate(self.full_cert_path)
             return self.full_cert_path
 
-    def _get_server_certificate(self, full_cert_path):
+    def _get_server_certificate(self, full_cert_path) -> str:
         """Retrieves, verfies, and stores ISE 1 public cert on local machine.
         This module uses certificate pinning because there is no CA to reference.
         Ensures the script only communicates with the verified ISE hardware.
         """
-        env_ise1_hostname = os.getenv("ise1_host")
-        env_expected_ise1_cert_hash = os.getenv("ise1_cert_sha512_hash")
+        env_ers_primary_hostname = os.getenv("ers_primary_hostname")
+        env_expected_ers_primary_cert_hash = os.getenv("ers_primary_sha512_hash")
         port = 443
         context = ssl.create_default_context()
         try:
-            with socket.create_connection((env_ise1_hostname, port)) as sock:
-                with context.wrap_socket(sock, server_hostname=env_ise1_hostname) as sslsock:
+            with socket.create_connection((env_ers_primary_hostname, port)) as sock:
+                with context.wrap_socket(sock, server_hostname=env_ers_primary_hostname) as sslsock:
                     print("Connection successful. Retrieving certificate...")
                     cert_der = sslsock.getpeercert(binary_form=True)
 
@@ -127,10 +127,10 @@ Placing ISE 1 certificate in following directory: {cert_path}\n\n
                         return None
 
                 cert_hash = hashlib.sha512(cert_der).hexdigest()
-                if cert_hash.lower() != env_expected_ise1_cert_hash.lower():
+                if cert_hash.lower() != env_expected_ers_primary_cert_hash.lower():
                     raise RuntimeError(f"""
                     SECURITY ALERT: Certificate hash mismatch!
-                    Expected: {env_expected_ise1_cert_hash}
+                    Expected: {env_expected_ers_primary_cert_hash}
                     Received: {cert_hash}
                     """)
 
@@ -144,7 +144,7 @@ Placing ISE 1 certificate in following directory: {cert_path}\n\n
 
         except (socket.gaierror, socket.timeout, ConnectionRefusedError) as net_err:
             raise RuntimeError(
-                f"Network Error connecting to {env_ise1_hostname}\n{net_err}"
+                f"Network Error connecting to {env_ers_primary_hostname}\n{net_err}"
                 ) from net_err
         except ssl.SSLError as e:
             raise RuntimeError(
@@ -153,7 +153,7 @@ Placing ISE 1 certificate in following directory: {cert_path}\n\n
         except Exception as e: # pylint: disable=broad-exception-caught
             raise RuntimeError(f"An unexpected error occurred: {e}") from e
 
-    def apply_anc_policy(self, mac_address, policy_name):
+    def apply_anc_policy(self, mac_address, policy_name) -> None:
         """
         Makes a PUT request to the ISE ERS API to apply an ANC policy to a MAC address.
         """
@@ -190,7 +190,7 @@ Placing ISE 1 certificate in following directory: {cert_path}\n\n
         except requests.exceptions.RequestException as e:
             print("Network exception: " + str(e))
 
-    def remove_anc_policy(self, mac_address, policy_name):
+    def remove_anc_policy(self, mac_address, policy_name) -> None:
         """
         Makes a PUT request to the ISE ERS API to clear/remove an ANC policy from a MAC address.
         """
@@ -304,20 +304,16 @@ Placing ISE 1 certificate in following directory: {cert_path}\n\n
         device_id = self.get_network_device_id(ip)
 
         if not device_id:
-            return {}
+            return {"status": "error", "message": "Device not found"}
 
         device_detail_path = f"/ers/config/networkdevice/{device_id}"
 
         payload = {
             "NetworkDevice": {
-                "authenticationSettings": {
-                    "radiusSharedSecret": radius_key
-                },
-                "tacacsSettings": {
-                    "sharedSecret": tacacs_key
+                "authenticationSettings": {"radiusSharedSecret": radius_key},
+                "tacacsSettings": {"sharedSecret": tacacs_key}
                 }
             }
-        }
 
         try:
             response = self.session.patch(
@@ -343,4 +339,4 @@ Placing ISE 1 certificate in following directory: {cert_path}\n\n
 
         except requests.exceptions.RequestException as e:
             print(f"[ERROR] Failed to patch config for device ID {device_id}: {e}")
-            return {}
+            return {"status": "error", "message": "Failed to update configuration"}
