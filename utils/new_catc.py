@@ -5,7 +5,7 @@ This module provides a structured, object-oriented framework for interacting wit
 the Cisco Catalyst Center REST API. 
 
 The module is divided into three primary components:
-    1. Connection/Authentication Management (CatalystCenterConnectionHandler)
+    1. Connection/Authentication Management (CatalystCenterClient)
     2. Read-Only API Operations (CatalystCenterGetAPIs)
     3. State-Changing API Operations (CatalystCenterPostAPIs)
 """
