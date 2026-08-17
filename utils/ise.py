@@ -18,6 +18,7 @@ class ISE:
         self.username = username
         self.password = password
         self.session = None  # Placeholder for the session object
+        self._validate_config()
         self.env_base_url = os.getenv("base_ise1_url")
         self.full_cert_path = self._validate_or_get_certificate()
 
@@ -65,6 +66,21 @@ class ISE:
             except Exception as e:  # pylint: disable=broad-exception-caught
                 # We catch all exceptions here to ensure the cleanup phase
                 print("An error occurred while closing the ISE session: " + str(e))
+
+    def _validate_config(self) -> None:
+        """Validate required ISE configuration is present before attempting to connect."""
+        required = {
+            "base_ise1_url": self.env_base_url,
+            "ers_primary_hostname": os.getenv("ers_primary_hostname"),
+            "ers_primary_cert_path": os.getenv("ers_primary_cert_path"),
+            "ers_primary_cert_name": os.getenv("ers_primary_cert_name"),
+            "ers_primary_sha512_hash": os.getenv("ers_primary_sha512_hash"),
+        }
+        missing = [name for name, value in required.items() if not value]
+        if missing:
+            raise RuntimeError(
+                f"Missing required ISE configuration: {', '.join(missing)}"
+            )
 
     def _validate_or_get_certificate(self) -> str:
         """Makes sure the ISE public cert is valid and on the local machine."""
@@ -123,8 +139,7 @@ Placing ISE 1 certificate in following directory: {ers_primary_cert_path}\n\n
                     cert_der = sslsock.getpeercert(binary_form=True)
 
                     if not cert_der:
-                        print("ERROR: Could not retrieve certificate.")
-                        return None
+                        raise RuntimeError("Could not retrieve certificate from ISE server.")
 
                 cert_hash = hashlib.sha512(cert_der).hexdigest()
                 if cert_hash.lower() != env_expected_ers_primary_cert_hash.lower():

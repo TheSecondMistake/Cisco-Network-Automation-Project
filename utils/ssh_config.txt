@@ -1,135 +1,47 @@
 # ==============================================================================
-# SSH Configuration - FIPS 140-3 Compliant + Post-Quantum Cryptography Ready
+# SSH Algorithm Preferences — consumed by Netmiko via ssh_config_file
 # ==============================================================================
-# 
-# COMPLIANCE NOTES:
-# - FIPS 140-3: Uses only NIST-approved cryptographic algorithms
-# - PQC Ready: Hybrid key exchanges for quantum-resistant transition
-# - Production Safe: Falls back to FIPS-only mode if PQC unavailable
+# SCOPE: Netmiko parses this file through paramiko.SSHConfig() but only acts on
+# a specific subset of directives: Ciphers/MACs/KexAlgorithms/HostKeyAlgorithms
+# (forwarded to Paramiko's Transport for algorithm negotiation), plus
+# ProxyCommand/ProxyJump/Hostname/Port. It does NOT read or enforce
+# StrictHostKeyChecking, UserKnownHostsFile, or GlobalKnownHostsFile — those
+# directives are silently ignored by Netmiko regardless of what's set here.
 #
-# CERTIFICATION STATUS:
-# | Algorithm Category | FIPS Approved | PQC Ready | Notes |
-# |--------------------|---------------|-----------|-------|
-# | Encryption         | YES           | N/A       | AES-GCM only |
-# | MAC/HMAC           | YES           | N/A       | SHA-2 family |
-# | Key Exchange       | YES (hybrid)  | PARTIAL   | FIPS + PQC hybrids |
-# | Host Keys          | YES           | PARTIAL   | RSA/ECDSA preferred |
+# Host-key trust (new/changed device handling) is controlled entirely in
+# ssh.py via ConnectHandler's ssh_strict / alt_host_keys / alt_key_file kwargs.
+# See ssh.py for the actual enforcement.
 # ==============================================================================
 
 host *
-    # -------------------------------------------------------------------------
-    # ENCRYPTION: FIPS 140-3 Approved Ciphers Only
-    # -------------------------------------------------------------------------
-    # AES-256-GCM: FIPS-approved, AEAD (authenticated encryption)
-    # AES-256-CTR: Fallback if GCM unavailable (requires separate MAC)
-    # REJECTED: ChaCha20-Poly1305 (not FIPS-approved despite being strong)
+    # ---------------------------------------------------------------------
+    # ENCRYPTION — FIPS-approved ciphers, GCM preferred (AEAD)
+    # ---------------------------------------------------------------------
     Ciphers aes256-gcm@openssh.com,aes128-gcm@openssh.com,aes256-ctr
-    
-    # -------------------------------------------------------------------------
-    # MESSAGE AUTHENTICATION: FIPS 140-3 Approved HMACs
-    # -------------------------------------------------------------------------
-    # -etm variants provide Encrypt-then-MAC (superior security)
-    # sha2-512/sha2-256: Both FIPS-approved
-    # REJECTED: hmac-md5, hmac-sha1, umac-* (non-FIPS or deprecated)
-    MACs hmac-sha2-512-etm@openssh.com,hmac-sha2-256-etm@openssh.com,
-         hmac-sha2-512,hmac-sha2-256
-    
-    # -------------------------------------------------------------------------
-    # KEY EXCHANGE: FIPS-Compliant + PQC Hybrid Options
-    # -------------------------------------------------------------------------
-    # PRIORITY ORDER (client tries left-to-right):
-    # 1. Hybrid PQC (quantum-resistant + classical) - Openssh 9.0+
-    # 2. Pure ECC (FIPS-approved, quantum-vulnerable but currently secure)
-    # 3. DH Group Exchange (FIPS-approved, larger key sizes)
-    #
-    # PQC ALGORITHMS (Experimental/NIST Draft):
-    # - mlkem768x25519: ML-KEM-768 (Kyber) + X25519 hybrid
-    # - sntrup761x25519: NTRU + X25519 hybrid
-    #
-    # FIPS-ONLY FALLBACK (for FIPS-mode systems without PQC):
-    # - ecdh-sha2-nistp521: Highest FIPS-approved ECC strength
-    # - ecdh-sha2-nistp384: Balanced FIPS-approved ECC
-    # - ecdh-sha2-nistp256: Minimum FIPS-approved ECC
-    # - diffie-hellman-group-exchange-sha256: Classic DH (FIPS-approved)
-    KexAlgorithms 
-        mlkem768x25519@openssh.com,sntrup761x25519@openssh.com,
-        curve25519-sha256,curve25519-sha256@libssh.org,
-        ecdh-sha2-nistp521,ecdh-sha2-nistp384,ecdh-sha2-nistp256,
-        diffie-hellman-group-exchange-sha256,diffie-hellman-group16-sha512,
-        diffie-hellman-group18-sha512
-    
-    # -------------------------------------------------------------------------
-    # HOST KEY ALGORITHMS: FIPS-Approved + Future-Proof
-    # -------------------------------------------------------------------------
-    # PRIORITY ORDER:
-    # 1. ECDSA NIST curves: FIPS-approved (P-256, P-384, P-521)
-    # 2. RSA SHA-2: FIPS-approved (2048-bit minimum, 3072+ recommended)
-    # 3. ED25519: NOT FIPS-approved (Curve25519 not in FIPS validation)
-    #    - Include only for non-FIPS systems
-    #    - Comment out for strict FIPS compliance
-    #
-    # PQC-READY NOTE: When NIST-finalized PQC signature algorithms (ML-DSA,
-    # SLH-DSA) gain SSH support, add them here alongside ECDSA/RSA.
-    HostKeyAlgorithms 
-        ecdsa-sha2-nistp521-cert-v01@openssh.com,
-        ecdsa-sha2-nistp384-cert-v01@openssh.com,
-        ecdsa-sha2-nistp256-cert-v01@openssh.com,
-        rsa-sha2-512-cert-v01@openssh.com,rsa-sha2-256-cert-v01@openssh.com,
-        ecdsa-sha2-nistp521,ecdsa-sha2-nistp384,ecdsa-sha2-nistp256,
-        rsa-sha2-512,rsa-sha2-256,
-        ssh-ed25519,ssh-ed25519-cert-v01@openssh.com
-    
-    # -------------------------------------------------------------------------
-    # PUBLIC KEY ALGORITHMS (Server-side preference)
-    # -------------------------------------------------------------------------
-    PubkeyAcceptedAlgorithms 
-        ecdsa-sha2-nistp521,ecdsa-sha2-nistp384,ecdsa-sha2-nistp256,
-        rsa-sha2-512,rsa-sha2-256,
-        ssh-ed25519
-    
-    # -------------------------------------------------------------------------
-    # SECURITY HARDENING (Non-Negotiable)
-    # -------------------------------------------------------------------------
-    # Disable compression: CRIME-like attacks, latency overhead
-    Compression no
-    
-    # Strict host key verification: MITM protection
-    StrictHostKeyChecking yes
-    UserKnownHostsFile ~/.ssh/known_hosts
-    GlobalKnownHostsFile /etc/ssh/ssh_known_hosts
-    
-    # Disable unnecessary features: Attack surface reduction
-    PermitLocalCommand no
-    ForwardX11 no
-    ForwardAgent no
-    PermitRemoteOpen no
-    
-    # TCP keepalive: Detect dead connections quickly
-    ServerAliveInterval 30
-    ServerAliveCountMax 3
-    ConnectTimeout 15
-    
-    # ------------------------------------------------------------------------
-    # OPTIONAL: FIPS Mode Detection (Uncomment if running in FIPS environment)
-    # ------------------------------------------------------------------------
-    # Uncomment these lines if your system enforces FIPS mode at OS level
-    # (e.g., RHEL/CentOS/Fedora with fips=1 kernel parameter, Windows FIPS policy)
-    #
-    # In strict FIPS mode, OpenSSH will automatically reject non-FIPS algorithms
-    # The above configurations are compatible with FIPS mode when:
-    # - Ed25519 is removed from HostKeyAlgorithms/PubkeyAcceptedAlgorithms
-    # - Only AES-GCM/CTR, SHA-2 HMACs, NIST ECC, RSA-SHA2 are used
-    #
-    # To test FIPS compliance: ssh -v user@host && grep "cipher/macro" debug log
-    # ------------------------------------------------------------------------
-    
-    # -------------------------------------------------------------------------
-    # LOGGING: Audit Trail for Compliance
-    # -------------------------------------------------------------------------
-    LogLevel VERBOSE
-    
-    # -------------------------------------------------------------------------
-    # LOCAL COMMAND PREVENTION (Critical Security)
-    # -------------------------------------------------------------------------
-    PermitLocalCommand no
-    
+
+    # ---------------------------------------------------------------------
+    # MESSAGE AUTHENTICATION — -etm variants preferred (Encrypt-then-MAC)
+    # ---------------------------------------------------------------------
+    MACs hmac-sha2-512-etm@openssh.com,hmac-sha2-256-etm@openssh.com,hmac-sha2-512,hmac-sha2-256
+
+    # ---------------------------------------------------------------------
+    # KEY EXCHANGE
+    # ---------------------------------------------------------------------
+    # NOTE: mlkem768x25519 / sntrup761x25519 (post-quantum hybrid KEX) are
+    # OMITTED here. They require a recent OpenSSH-compatible implementation,
+    # and it has not been confirmed that Paramiko (Netmiko's underlying SSH
+    # library, a separate pure-Python reimplementation of the protocol)
+    # supports them. Listing algorithms Paramiko doesn't implement won't
+    # cause a crash, but it won't gain you PQC protection either — verify
+    # against your installed `paramiko` version before adding them back.
+    KexAlgorithms curve25519-sha256,curve25519-sha256@libssh.org,ecdh-sha2-nistp521,ecdh-sha2-nistp384,ecdh-sha2-nistp256,diffie-hellman-group-exchange-sha256,diffie-hellman-group16-sha512,diffie-hellman-group18-sha512
+
+    # ---------------------------------------------------------------------
+    # HOST KEY ALGORITHMS
+    # ---------------------------------------------------------------------
+    HostKeyAlgorithms ecdsa-sha2-nistp521,ecdsa-sha2-nistp384,ecdsa-sha2-nistp256,rsa-sha2-512,rsa-sha2-256,ssh-ed25519
+
+    # ---------------------------------------------------------------------
+    # PUBLIC KEY ALGORITHMS (server-side preference)
+    # ---------------------------------------------------------------------
+    PubkeyAcceptedAlgorithms ecdsa-sha2-nistp521,ecdsa-sha2-nistp384,ecdsa-sha2-nistp256,rsa-sha2-512,rsa-sha2-256,ssh-ed25519

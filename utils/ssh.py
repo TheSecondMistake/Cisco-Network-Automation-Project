@@ -1,143 +1,169 @@
-"""
-Collection of shared Cisco SSH utility functions for network automation.
+"""Collection of shared Cisco SSH utility functions for network automation.
 Uses Netmiko for all SSH connections
+
+HOST KEY SECURITY:
+- Host key verification is enforced via ConnectHandler's ssh_strict parameter
+- Alternate known_hosts file configured via alt_host_keys / alt_key_file
+- See ssh_config.txt header for architecture documentation
 """
 
 import os
+import logging
+from pathlib import Path
 from dotenv import load_dotenv
 from netmiko import ConnectHandler
 from netmiko.exceptions import NetmikoTimeoutException, NetmikoAuthenticationException
 
 load_dotenv()
 
+logger: logging.Logger = logging.getLogger(__name__)
+
+
+def _get_known_hosts_path() -> str:
+    """Return the path to the alternate known_hosts file.
+
+    Reads from environment variable if set, otherwise defaults to project-local file.
+    """
+    env_known_hosts = os.getenv("ssh_known_hosts_path")
+    if env_known_hosts:
+        return env_known_hosts
+
+    base_dir = Path(os.path.dirname(os.path.abspath(__file__)))
+    default_path = base_dir / "known_hosts"
+    return str(default_path)
+
+
 class CiscoSSH:
     """
-    Class meant to simply SSH actions ('with' blocks supported)
-    """
-    instances = []
+    Secure SSH wrapper class for Cisco network devices.
 
-    def __init__(self, ip, username: str, password: str, end_with_write:bool = False) -> None:
+    Enforces:
+    - Strict host key verification (rejects unknown/untrusted hosts)
+    - FIPS-approved cryptography via ssh_config_file
+    - Connection timeouts and keepalive
+    - Automatic session cleanup via context manager
+    """
+
+    def __init__(
+            self,
+            ip: str,
+            username: str,
+            password: str,
+            allow_new_host: bool = False
+            ) -> None:
+        """Initialize SSH connection parameters. The connection itself is
+        established when entering a 'with' block.
+
+        Args:
+            ip: Device IP address or hostname
+            username: SSH username
+            password: SSH password
+            allow_new_host: If True, accept unknown host keys (dangerous, use sparingly)
+        """
         base_dir = os.path.dirname(os.path.abspath(__file__))
         ssh_config_file = os.path.join(base_dir, "ssh_config.txt")
+        known_hosts_path = _get_known_hosts_path()
+
         self.device_params = {
             "device_type": "cisco_ios",
             "host": ip,
             "username": username,
             "password": password,
-            "ssh_config_file": ssh_config_file
+
+            "conn_timeout": 15,
+            "session_timeout": 15,
+            "timeout": 90,
+            "read_timeout_override": 90,
+            "keepalive": 30,
+
+            "allow_agent": False,
+            "ssh_strict": not allow_new_host,
+            "alt_host_keys": True,
+            "alt_key_file": known_hosts_path,
+
+            "ssh_config_file": ssh_config_file,
         }
         self.ip = ip
-        self.ssh = ConnectHandler(**self.device_params)
-        self.hostname = self.ssh.find_prompt()[:-1]
-        self.end_with_write = end_with_write
-        CiscoSSH.instances.append(self)
+        self.ssh = None
+        self.hostname = None
 
     def __enter__(self) -> "CiscoSSH":
-        """
-        Runs automatically when you open a 'with' block.
-        
-        SSH session should be established in __init__, but will be verified again here
-        """
-        self._ensure_connection()
+        """Establishes the SSH session and verifies it before returning."""
+        self.ssh = ConnectHandler(**self.device_params)
+        self.hostname = self.ssh.find_prompt()[:-1]
+        logger.info("Connected to %s (%s)", self.hostname, self.ip)
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb) -> None:
-        """Runs automatically when the 'with' block ends (even on errors).
-        
-        Closes SSH session
-        Does not save switch config before exit unless 'end_with_write' set to True.
-        """
-        if self.end_with_write:
-            self.ssh_write()
+        """Closes SSH session cleanly."""
         if self.ssh:
             try:
                 self.ssh.disconnect()
-                print(f"{self.hostname} Disconnected cleanly.")
-            except Exception: # pylint: disable=broad-exception-caught
-                pass
+                logger.info("%s Disconnected cleanly.", self.hostname)
+            except Exception as e:  # pylint: disable=broad-exception-caught
+                logger.warning("Error disconnecting %s: %s", self.hostname, e)
 
     def _ensure_connection(self) -> None:
-        """Internal helper to check for an active SSH session."""
+        """Check for active SSH session and reconnect if needed."""
         if not self.ssh or not self.ssh.is_alive():
             try:
+                logger.info("Reconnecting to %s...", self.ip)
                 self.ssh = ConnectHandler(**self.device_params)
+                self.hostname = self.ssh.find_prompt()[:-1]
             except (NetmikoTimeoutException, NetmikoAuthenticationException) as e:
-                raise ConnectionError(f"Could not connect to {self.ip}: {e}") from e
+                logger.error("Could not connect to %s: %s", self.ip, e)
+                raise ConnectionError(
+                    f"Could not connect to {self.ip}: {e}"
+                ) from e
 
-    def ssh_write(self) -> str:
-        """Writes a device configuration and returns a status message."""
-        try:
-            self._ensure_connection()
-            output = self.ssh.send_command("write memory", read_timeout=90)
-            if "[OK]" in output:
-                return f"SUCCESS: Configuration saved on {self.hostname}"
-            return f"FAILED: Save command rejected on {self.hostname}. Output: {output.strip()}"
+    def ssh_write(self) -> None:
+        """Saves the running configuration to startup."""
+        self._ensure_connection()
 
-        except (NetmikoTimeoutException, NetmikoAuthenticationException) as e:
-            # These are expected network/credential issues
-            return f"CONNECTIVITY ERROR: {self.hostname} could not be reached or timed out: {e}"
+        output = self.ssh.send_command(
+            "write memory",
+            read_timeout=90
+        )
 
-        except (EOFError, ConnectionResetError):
-            # The switch might have dropped the connection during the write
-            return f"CONNECTION LOST: {self.hostname} closed the session during the save."
+        if "[OK]" not in output:
+            raise RuntimeError(
+                f"Configuration save failed on {self.hostname}: {output.strip()}"
+            )
 
-        except Exception as e: # pylint: disable=broad-exception-caught
-            # This handles truly unexpected logic bugs
-            return f"UNEXPECTED ERROR on {self.hostname}: {type(e).__name__} - {e}"
+        logger.info("Configuration saved on %s", self.hostname)
 
-    def get_version(self) -> dict:
-        """Returns 'show version' output in an iteratable format"""
+    def get_version(self) -> list[dict]:
+        """Returns 'show version' output in an iteratable format."""
         self._ensure_connection()
         return self.ssh.send_command("show version", use_textfsm=True)
 
-    def get_int_status(self) -> dict:
-        """Returns 'show interface status' output in an iteratable format"""
+    def get_int_status(self) -> list[dict]:
+        """Returns 'show interface status' output in an iteratable format."""
         self._ensure_connection()
         return self.ssh.send_command("show interface status", use_textfsm=True)
 
-    def check_half_duplex(self) -> str:
-        """Checks for half-duplex ports and returns a status summary."""
+    def check_half_duplex(self) -> list[dict]:
+        """Returns a list of interfaces operating in half-duplex."""
         try:
             interface_data = self.get_int_status()
-
-            found_half = False
-            for entry in interface_data:
-                if entry.get("duplex") in ("half", "a-half"):
-                    print(f"{entry['port']} is HALF DUPLEX on {self.hostname}")
-                    found_half = True
-
-            status = "Issues found" if found_half else "Clean"
-            return f"Completed check on {self.hostname}. Result: {status}."
+            return [
+                entry
+                for entry in interface_data
+                if entry.get("duplex") in ("half", "a-half")
+            ]
 
         except (ConnectionError, TimeoutError) as e:
-            # Handle known network/connectivity issues gracefully
-            return f"Network failure during duplex check on {self.hostname}: {e}"
-
-        except KeyError as e:
-            # Handle cases where TextFSM/parsing doesn't return the expected keys
-            return f"Data parsing error on {self.hostname}: Missing field {e}"
+            raise ConnectionError(
+                f"Network failure during duplex check on {self.hostname}: {e}"
+            ) from e
 
     def manual_disconnect(self) -> None:
-        """
-        This class should acutomatiically close ssh sessions but this 
-        function to allow a more granular disconnect option if needed.
-        """
+        """Manually disconnect from SSH session before context manager exits."""
         if self.ssh:
             try:
                 self.ssh.disconnect()
+                logger.info("Manual disconnect from %s", self.hostname)
+            except Exception as e:  # pylint: disable=broad-exception-caught
+                logger.warning("Error during manual disconnect %s: %s", self.hostname, e)
+            finally:
                 self.ssh = None
-            except Exception: # pylint: disable=broad-exception-caught
-                pass
-
-    @classmethod
-    def close_all_sessions(cls) -> None:
-        """
-        Loops through the registry and closes all connections.
-        Can be run at the end of a script to make sure all SSH sessions are closed
-        """
-        print(f"\n--- Closing {len(cls.instances)} active sessions ---")
-        for instance in cls.instances:
-            if instance.ssh:
-                print(f"Disconnecting from {instance.hostname}...")
-                instance.manual_disconnect()
-        print("All sessions closed.")
