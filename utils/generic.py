@@ -4,7 +4,6 @@ Collection of shared utility functions for network automation.
 
 from typing import Literal
 import getpass
-import os
 import ipaddress
 import re
 
@@ -32,13 +31,16 @@ def create_filtered_device_dict(raw_network_devices: dict) -> dict[str, dict]:
         
     Returns:
         dict[str, dict]: Cleaned device dictionary keyed by hostname"""
-    env_domain_suffix = os.getenv("domain_suffix", "") # Default to empty string if missing
     network_devices: dict[str, dict] = {}
 
     for device in raw_network_devices:
         try:
             hostname = device.get("hostname", "Unknown")
-            clean_name = hostname.removesuffix(env_domain_suffix) if env_domain_suffix else hostname
+            clean_name = (
+                hostname.removesuffix(config.DOMAIN_SUFFIX)
+                if config.DOMAIN_SUFFIX
+                else hostname
+            )
             network_devices[clean_name] = {
                 "dnac_id": device.get("id"),
                 "ip": device.get("managementIpAddress"),
@@ -131,7 +133,7 @@ def parse_authentication_servers(
         A dictionary where the keys are the {auth_type} server names (str) and values
         are dictionaries containing 'address' and/or 'key' configuration strings.
     """
-    if auth_type not in ["radius", "tacacs"]:
+    if auth_type not in ("radius", "tacacs"):
         raise ValueError(
             f"Invalid authentication server type: {auth_type}. Must be 'radius' or 'tacacs'"
             )

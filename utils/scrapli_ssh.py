@@ -3,6 +3,8 @@ Collection of shared Cisco SSH utility functions for network automation.
 
 Uses Scrapli to manage SSH connections, forced to run on Paramiko to support
 Windows environments.
+
+Experimental implementation of scrapli. Doesn't run well without linux or wsl.
 """
 
 from dotenv import load_dotenv
