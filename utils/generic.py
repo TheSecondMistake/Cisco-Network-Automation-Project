@@ -8,9 +8,7 @@ import os
 import ipaddress
 import re
 
-from dotenv import load_dotenv
-
-load_dotenv()
+import config
 
 
 def get_login() -> tuple[str, str]:

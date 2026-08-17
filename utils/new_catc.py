@@ -20,9 +20,8 @@ import ipaddress
 import requests
 from requests.auth import HTTPBasicAuth
 from requests.exceptions import RequestException
-from dotenv import load_dotenv
 
-load_dotenv()
+import config
 
 
 def _chunk_devices(device_list, chunk_size=20):
@@ -52,6 +51,13 @@ class CatalystCenterClient:
 
     def __init__(self, username: str, password: str) -> None:
         self.env_base_url = os.getenv("base_dnac_url")
+        config.require_env({
+            "base_dnac_url": self.env_base_url,
+            "dnac_host": os.getenv("dnac_host"),
+            "dnac_cert_name": os.getenv("dnac_cert_name"),
+            "dnac_cert_sha512_hash": os.getenv("dnac_cert_sha512_hash"),
+            "dnac_cert_path": os.getenv("dnac_cert_path")
+        })
         self.username = username
         self.password = password
 

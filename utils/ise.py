@@ -8,9 +8,8 @@ import ssl
 import hashlib
 import socket
 import requests
-from dotenv import load_dotenv
 
-load_dotenv()
+import config
 
 class ISE:
     """Provides a secure interface for interacting with ISE ERS APIs."""
@@ -18,8 +17,14 @@ class ISE:
         self.username = username
         self.password = password
         self.session = None  # Placeholder for the session object
-        self._validate_config()
-        self.env_base_url = os.getenv("base_ise1_url")
+        self.env_ers_base_url = os.getenv("ers_primary_url")
+        config.require_env({
+            "ers_primary_url": self.env_ers_base_url,
+            "ers_primary_hostname": os.getenv("ers_primary_hostname"),
+            "ers_primary_cert_path": os.getenv("ers_primary_cert_path"),
+            "ers_primary_cert_name": os.getenv("ers_primary_cert_name"),
+            "ers_primary_sha512_hash": os.getenv("ers_primary_sha512_hash"),
+        })
         self.full_cert_path = self._validate_or_get_certificate()
 
 
@@ -36,7 +41,7 @@ class ISE:
         try:
             # Cheap, low-impact endpoint just to force the TLS handshake + auth check
             response = self.session.get(
-                self.env_base_url + "/ers/config/networkdevice?size=1",
+                self.env_ers_base_url + "/ers/config/networkdevice?size=1",
                 timeout=10
             )
             if response.status_code == 401:
@@ -66,21 +71,6 @@ class ISE:
             except Exception as e:  # pylint: disable=broad-exception-caught
                 # We catch all exceptions here to ensure the cleanup phase
                 print("An error occurred while closing the ISE session: " + str(e))
-
-    def _validate_config(self) -> None:
-        """Validate required ISE configuration is present before attempting to connect."""
-        required = {
-            "base_ise1_url": self.env_base_url,
-            "ers_primary_hostname": os.getenv("ers_primary_hostname"),
-            "ers_primary_cert_path": os.getenv("ers_primary_cert_path"),
-            "ers_primary_cert_name": os.getenv("ers_primary_cert_name"),
-            "ers_primary_sha512_hash": os.getenv("ers_primary_sha512_hash"),
-        }
-        missing = [name for name, value in required.items() if not value]
-        if missing:
-            raise RuntimeError(
-                f"Missing required ISE configuration: {', '.join(missing)}"
-            )
 
     def _validate_or_get_certificate(self) -> str:
         """Makes sure the ISE public cert is valid and on the local machine."""
@@ -191,7 +181,7 @@ Placing ISE 1 certificate in following directory: {ers_primary_cert_path}\n\n
 
         try:
             response = self.session.put(
-                self.env_base_url + anc_url,
+                self.env_ers_base_url + anc_url,
                 data=json.dumps(payload)
             )
 
@@ -228,7 +218,7 @@ Placing ISE 1 certificate in following directory: {ers_primary_cert_path}\n\n
 
         try:
             response = self.session.put(
-                self.env_base_url + anc_clear_url,
+                self.env_ers_base_url + anc_clear_url,
                 data=json.dumps(payload)
             )
 
@@ -247,7 +237,7 @@ Placing ISE 1 certificate in following directory: {ers_primary_cert_path}\n\n
 
         search_path = f"/ers/config/networkdevice/?filter=ipaddress.EQ.{ip}"
         try:
-            response = self.session.get(self.env_base_url + search_path)
+            response = self.session.get(self.env_ers_base_url + search_path)
 
             if response.status_code == 401:
                 raise RuntimeError(
@@ -292,7 +282,7 @@ Placing ISE 1 certificate in following directory: {ers_primary_cert_path}\n\n
         device_detail_path = f"/ers/config/networkdevice/{device_id}"
 
         try:
-            response = self.session.get(self.env_base_url + device_detail_path)
+            response = self.session.get(self.env_ers_base_url + device_detail_path)
 
             if response.status_code == 401:
                 raise RuntimeError(
@@ -332,7 +322,7 @@ Placing ISE 1 certificate in following directory: {ers_primary_cert_path}\n\n
 
         try:
             response = self.session.patch(
-                self.env_base_url + device_detail_path, 
+                self.env_ers_base_url + device_detail_path, 
                 json=payload
             )
 

@@ -10,11 +10,10 @@ HOST KEY SECURITY:
 import os
 import logging
 from pathlib import Path
-from dotenv import load_dotenv
 from netmiko import ConnectHandler
 from netmiko.exceptions import NetmikoTimeoutException, NetmikoAuthenticationException
 
-load_dotenv()
+import config as _
 
 logger: logging.Logger = logging.getLogger(__name__)
 
@@ -144,18 +143,12 @@ class CiscoSSH:
 
     def check_half_duplex(self) -> list[dict]:
         """Returns a list of interfaces operating in half-duplex."""
-        try:
-            interface_data = self.get_int_status()
-            return [
-                entry
-                for entry in interface_data
-                if entry.get("duplex") in ("half", "a-half")
-            ]
-
-        except (ConnectionError, TimeoutError) as e:
-            raise ConnectionError(
-                f"Network failure during duplex check on {self.hostname}: {e}"
-            ) from e
+        interface_data = self.get_int_status()
+        return [
+            entry
+            for entry in interface_data
+            if entry.get("duplex") in ("half", "a-half")
+        ]
 
     def manual_disconnect(self) -> None:
         """Manually disconnect from SSH session before context manager exits."""
